@@ -1,15 +1,20 @@
 import express from 'express';
 import logger from 'morgan';
-import { readFile, writeFile } from 'fs/promises';
-
+import { connectToDb, getDb } from './db.js';
+let db
+let id
 let trips = {};
-const JSONfile = 'trips.json';
+const JSONfile = '';
 
 async function reload(filename) {
+  console.log('reloadddddddd')
   try {
-    const data = await readFile(filename, { encoding: 'utf8' });
-    trips = JSON.parse(data);
+    const users = await db.collection('users').find({}, { projection: { _id: 0 } }).toArray();
+    const withID = await db.collection('users').find({}, { projection: { _id: 1 } }).toArray();
+    trips = users[0];
+    id = withID[0]._id;
   } catch (err) {
+    console.log(err);
     trips = {};
   }
 }
@@ -17,7 +22,11 @@ async function reload(filename) {
 async function saveTrips() {
   try {
     const data = JSON.stringify(trips);
-    await writeFile(JSONfile, data, { encoding: 'utf8' });
+    const filter = { _id: id}; 
+    const result = await db.collection('users').replaceOne(filter, trips);
+    if (result.modifiedCount !== 1) {
+      throw Error;
+    }
   } catch (err) {
     console.log(err);
   }
@@ -147,6 +156,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use('/client', express.static('client'));
 
+app.get('/users', async (req, res) => {
+  try {
+    console.log('hello');
+    const users = await db.collection('users').find().toArray();
+    res.status(200).json(users);
+  } catch (error) {
+    console.error('Error fetching documents:', error);
+    res.status(500).json({ error: 'Could not fetch the documents' });
+  }
+});
+
 app.post('/create', async (request, response) => {
   const options = request.body;
   createNewTrip(response, options.title, options.destination, options.date);
@@ -154,7 +174,6 @@ app.post('/create', async (request, response) => {
 
 app.get('/read', async (request, response) => {
   const options = request.query;
-  console.log(options);
   readTrip(response, options.title);
 });
 
@@ -192,6 +211,12 @@ app.get('*', async (request, response) => {
   response.status(404).send(`Not found: ${request.path}`);
 });
 
-app.listen(port, () => {
-  console.log(`Server started on port ${port}`);
+connectToDb((err) => {
+  if(!err){
+    app.listen(port, () => {
+      console.log(`Server started on port ${port}`);
+    });
+    db = getDb();
+  }
 });
+
